@@ -15,7 +15,11 @@ pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.3
 
 # === Constantes de Configuração ===
-BASE_DIR        = Path(r'W:\COMERCIAL\00 - ROBO\MOT-DD-F')
+# Diretório base é definido de forma relativa ao local deste script, para
+# facilitar a execução em diferentes ambientes (ex.: diretamente no
+# Visual Studio Code). Todas as demais pastas/arquivos partem desse
+# caminho.
+BASE_DIR        = Path(__file__).resolve().parent
 EXCEL_PATH      = BASE_DIR / 'Fatu_dia.xlsx'
 IMG_DIR         = BASE_DIR / 'Imagens'
 
@@ -40,6 +44,11 @@ IMAGES = {
     'copy':               IMG_DIR / 'copiar.png',
     'no':                 IMG_DIR / 'erro_nao.png',
     'confirmar':          IMG_DIR / 'confirmar.png',  # usado em Etapa 6
+    'conferencia_etapa02': IMG_DIR / 'conferencia_etapa02.png',
+    'con_13':             IMG_DIR / 'Con_13.png',
+    'item_fallback':      IMG_DIR / '19763.png',
+    'textos':             IMG_DIR / 'textos.png',
+    'normal':             IMG_DIR / 'normal.png',
 }
 
 # === Logging ===
@@ -63,38 +72,67 @@ class RoboLogix:
         self._load_excel()
 
     def _load_excel(self):
-        if not self.excel_path.exists():
-            log.error(f"Arquivo não encontrado: {self.excel_path}")
-            sys.exit(1)
-        try:
-            self.df_base = pd.read_excel(self.excel_path, sheet_name=SHEET_BASE, header=None)
-            self.df_principal = pd.read_excel(self.excel_path, sheet_name=SHEET_PRINCIPAL)
+        """Carrega as planilhas de Excel e valida estrutura.
+        Caso alguma validação falhe, exibe diálogo permitindo reiniciar o processo."""
+        while True:
+            if not self.excel_path.exists():
+                resp = pyautogui.confirm(
+                    text=f"Arquivo não encontrado: {self.excel_path}\nVerifique e tente novamente.",
+                    title="Erro", buttons=["Recomeçar", "Cancelar"])
+                if resp == "Recomeçar":
+                    time.sleep(1)
+                    continue
+                sys.exit(1)
             try:
-                self.df_outros = pd.read_excel(self.excel_path, sheet_name=SHEET_OUTROS)
-            except Exception:
-                self.df_outros = None
-            log.info("Planilhas carregadas com sucesso.")
-        except Exception as e:
-            log.error(f"Falha ao ler Excel: {e}")
-            sys.exit(1)
-
-        # Validação mínima da planilha BASE
-        if self.df_base.shape[0] < 1 or self.df_base.shape[1] < 2:
-            log.error("Planilha BASE deve ter ao menos 1 linha e 2 colunas.")
-            sys.exit(1)
-
-        # Validação mínima da planilha PRINCIPAL
-        if self.df_principal.shape[0] < 1 or self.df_principal.shape[1] < 9:
-            log.error(f"Planilha {SHEET_PRINCIPAL} deve ter ao menos 1 linha com 9 colunas.")
-            sys.exit(1)
-
-        # Se existir a planilha OUTROS, validar estrutura
-        if self.df_outros is not None:
-            if self.df_outros.shape[0] < 1 or self.df_outros.shape[1] < 9:
-                log.error(f"Planilha {SHEET_OUTROS} existe mas não tem ao menos 1 linha com 9 colunas.")
+                self.df_base = pd.read_excel(self.excel_path, sheet_name=SHEET_BASE, header=None)
+                self.df_principal = pd.read_excel(self.excel_path, sheet_name=SHEET_PRINCIPAL)
+                try:
+                    self.df_outros = pd.read_excel(self.excel_path, sheet_name=SHEET_OUTROS)
+                except Exception:
+                    self.df_outros = None
+                log.info("Planilhas carregadas com sucesso.")
+            except Exception as e:
+                resp = pyautogui.confirm(
+                    text=f"Falha ao ler Excel: {e}\nDeseja recomeçar o processo?",
+                    title="Erro", buttons=["Recomeçar", "Cancelar"])
+                if resp == "Recomeçar":
+                    time.sleep(1)
+                    continue
                 sys.exit(1)
 
+            # Validação mínima da planilha BASE
+            if self.df_base.shape[0] < 1 or self.df_base.shape[1] < 2:
+                resp = pyautogui.confirm(
+                    text="Planilha BASE deve ter ao menos 1 linha e 2 colunas.",
+                    title="Erro", buttons=["Recomeçar", "Cancelar"])
+                if resp == "Recomeçar":
+                    continue
+                sys.exit(1)
+
+            # Validação mínima da planilha PRINCIPAL
+            if self.df_principal.shape[0] < 1 or self.df_principal.shape[1] < 9:
+                resp = pyautogui.confirm(
+                    text=f"Planilha {SHEET_PRINCIPAL} deve ter ao menos 1 linha com 9 colunas.",
+                    title="Erro", buttons=["Recomeçar", "Cancelar"])
+                if resp == "Recomeçar":
+                    continue
+                sys.exit(1)
+
+            # Se existir a planilha OUTROS, validar estrutura
+            if self.df_outros is not None:
+                if self.df_outros.shape[0] < 1 or self.df_outros.shape[1] < 9:
+                    resp = pyautogui.confirm(
+                        text=f"Planilha {SHEET_OUTROS} existe mas não possui 1 linha com 9 colunas.",
+                        title="Erro", buttons=["Recomeçar", "Cancelar"])
+                    if resp == "Recomeçar":
+                        continue
+                    sys.exit(1)
+            break
+
     def localizar(self, img_path: Path, timeout: float = 8, confidences=(0.8, 0.6)) -> Optional[pyautogui.Point]:
+        if not img_path.exists():
+            log.error(f"Imagem não encontrada no disco: {img_path}")
+            return None
         end_time = time.time() + timeout
         while time.time() < end_time:
             for conf in confidences:
@@ -112,6 +150,9 @@ class RoboLogix:
         return None
 
     def localizar_central(self, img_path: Path, timeout: float = 8, confidences=(0.8, 0.6)) -> Optional[pyautogui.Point]:
+        if not img_path.exists():
+            log.error(f"Imagem não encontrada no disco: {img_path}")
+            return None
         end_time = time.time() + timeout
         sw, sh = pyautogui.size()
         centro = (sw / 2, sh / 2)
@@ -150,8 +191,11 @@ class RoboLogix:
         pos = self.localizar(self.images['lupa'])
         if not pos:
             raise RuntimeError("Ícone de lupa não encontrado.")
-        pyautogui.doubleClick(pos.x, pos.y, interval=0.2)
+        pyautogui.doubleClick(pos.x, pos.y, interval=1.0)
         time.sleep(self.timings['lupa_after'])
+        if not self.localizar(self.images['confirm_pedido'], timeout=2):
+            pyautogui.click(pos)
+            time.sleep(self.timings['lupa_after'])
 
         pyautogui.press('tab')
         time.sleep(self.timings['tab'])
@@ -167,14 +211,27 @@ class RoboLogix:
             log.warning("Confirmar pedido não achado; usou ENTER.")
         time.sleep(self.timings['confirm'])
 
-    def etapa02_copiar(self):
+    def etapa02_copiar(self) -> bool:
+        """Realiza a ação de copiar e verifica se é necessário clicar 'Não'.
+        Retorna True se a imagem de erro aparecer, indicando que etapa03 deve ser executada."""
         log.info("=== Etapa 02: Copiar ===")
-        pos = self.localizar(self.images['copy'])
-        if not pos:
-            raise RuntimeError("Botão 'Copiar' não encontrado.")
-        pyautogui.click(pos)
-        time.sleep(self.timings['copy'])
-        log.info("Clicou em Copiar.")
+        while True:
+            pos = self.localizar(self.images['copy'])
+            if not pos:
+                raise RuntimeError("Botão 'Copiar' não encontrado.")
+            pyautogui.click(pos)
+            time.sleep(self.timings['copy'])
+            log.info("Clicou em Copiar.")
+
+            if self.localizar(self.images['no'], timeout=2):
+                log.info("Popup de erro detectado após Copiar.")
+                return True
+            if self.localizar(self.images['conferencia_etapa02'], timeout=2):
+                log.info("Cópia realizada com sucesso.")
+                return False
+
+            log.warning("Nenhuma confirmação localizada após Copiar; tentando novamente.")
+            time.sleep(1)
 
     def etapa03_clicar_nao(self):
         log.info("=== Etapa 03: Não ===")
@@ -200,6 +257,11 @@ class RoboLogix:
             pyautogui.press('tab')
         pyautogui.press('right')
         time.sleep(0.5)
+        if not self.localizar(self.images['con_13'], timeout=2):
+            pos_fallback = self.localizar(self.images['item_fallback'])
+            if pos_fallback:
+                pyautogui.click(pos_fallback)
+                log.info("Clique de correção executado em '19763.png'.")
 
         # Preenche Item
         pyautogui.write(str(item), interval=0.05)
@@ -220,6 +282,8 @@ class RoboLogix:
         pyautogui.hotkey('ctrl', 't')
         log.info("Ctrl+T executado.")
         time.sleep(self.timings['before_ctrl_t'])
+        while not self.localizar(self.images['textos'], timeout=2):
+            time.sleep(0.2)
 
         # Preenche Depósito (maiúsculo)
         pyautogui.press('tab')
@@ -238,9 +302,14 @@ class RoboLogix:
         else:
             pos_conf_dep = self.confirmar_pos
 
-        pyautogui.click(pos_conf_dep)
-        log.info("✅ Confirmou Depósito (central).")
-        time.sleep(self.timings['confirm'])
+        while True:
+            pyautogui.click(pos_conf_dep)
+            log.info("✅ Confirmou Depósito (central).")
+            time.sleep(self.timings['confirm'])
+            if self.localizar(self.images['normal'], timeout=1.5):
+                break
+            log.warning("Tela não retornou ao normal, tentando confirmar novamente.")
+            pos_conf_dep = self.localizar_central(self.images['confirmar']) or pos_conf_dep
 
         # Continua com Prog Remes e Linha
         for _ in range(6):
@@ -311,6 +380,8 @@ class RoboLogix:
             pyautogui.hotkey('ctrl', 't')
             log.info("Ctrl+T executado.")
             time.sleep(self.timings['before_ctrl_t'])
+            while not self.localizar(self.images['textos'], timeout=2):
+                time.sleep(0.2)
 
             # Preenche Depósito
             pyautogui.press('tab')
@@ -329,9 +400,14 @@ class RoboLogix:
             else:
                 pos_conf_dep = self.confirmar_pos
 
-            pyautogui.click(pos_conf_dep)
-            log.info("✅ Confirmou Depósito (central).")
-            time.sleep(self.timings['confirm'])
+            while True:
+                pyautogui.click(pos_conf_dep)
+                log.info("✅ Confirmou Depósito (central).")
+                time.sleep(self.timings['confirm'])
+                if self.localizar(self.images['normal'], timeout=1.5):
+                    break
+                log.warning("Tela não retornou ao normal, tentando confirmar novamente.")
+                pos_conf_dep = self.localizar_central(self.images['confirmar']) or pos_conf_dep
 
             # Preenche Prog Remes e Linha
             for _ in range(6):
@@ -385,8 +461,9 @@ class RoboLogix:
         self.nome_planilha = nome
 
         self.etapa01_buscar_pedido(pedido)
-        self.etapa02_copiar()
-        self.etapa03_clicar_nao()
+        precisa_nao = self.etapa02_copiar()
+        if precisa_nao:
+            self.etapa03_clicar_nao()
         self.etapa04_incluir_e_depositar()
         self.etapa05_incluir_todos_itens()
         self.etapa06_confirmar_lancamento()
